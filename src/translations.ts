@@ -24,6 +24,7 @@ export const translations = {
         bottomTagline: 'Fast and Easy',
         // New MapPage Keys
         menu: 'Menu',
+        home: 'Home',
         close: 'Close',
         settings: 'Settings',
         resetSystem: 'RESET SYSTEM',
@@ -68,6 +69,7 @@ export const translations = {
         bottomTagline: 'Tez va Qulay',
         // New MapPage Keys
         menu: 'Menyu',
+        home: 'Bosh sahifa',
         close: 'Yopish',
         settings: 'Sozlamalar',
         resetSystem: 'TIZIMNI QAYTA SOZLASH',
@@ -108,6 +110,7 @@ export const translations = {
         bottomTagline: 'Быстро и Удобно',
         // New MapPage Keys
         menu: 'Меню',
+        home: 'Главная',
         close: 'Закрыть',
         settings: 'Настройки',
         resetSystem: 'СБРОС СИСТЕМЫ',
@@ -160,6 +163,7 @@ export const translations = {
         bottomTagline: 'Тез ва осон. Taxi',
         // New MapPage Keys
         menu: 'Меню',
+        home: 'Саҳифаи асосӣ',
         close: 'Пӯшидан',
         settings: 'Танзимот',
         resetSystem: 'БОЗСОЗИИ СИСТЕМА',

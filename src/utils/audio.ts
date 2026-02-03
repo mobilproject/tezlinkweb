@@ -1,14 +1,36 @@
+// Cache to store preloaded Audio objects
+const audioCache: Record<string, HTMLAudioElement> = {};
+
+// Helper to get base path
+const getBasePath = () => import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+
+export const preloadSounds = () => {
+    const basePath = getBasePath();
+    const sounds = [
+        // Welcome
+        'welcome_1.wav', 'welcome_2.wav', 'welcome_3.wav',
+        'welcome_4.wav', 'welcome_5.wav', 'welcome_6.wav',
+        // Alerts
+        'alert_1.wav',
+        // Success
+        'success_1.wav', 'success_2.wav',
+        // Notifications
+        'notification_1.wav',
+        // Cancel
+        'cancel_1.wav', 'cancel_2.wav'
+    ];
+
+    console.log('[Audio] Preloading sounds...');
+    sounds.forEach(filename => {
+        const audio = new Audio(`${basePath}sounds/${filename}`);
+        audio.preload = 'auto'; // Hint to browser
+        // Force load logic if strict preloading is needed, but just creating the component usually works in modern browsers
+        audioCache[filename] = audio;
+    });
+};
+
 export const playSound = (soundName: 'welcome' | 'new_request' | 'success' | 'notification' | 'cancel' | 'click') => {
-    // Vite base path logic
-    const basePath = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
-
-    // Mapping for VARIATIONS (Simple Random or Sequential logic could go here)
-    // For now, let's map the generic names to the specific files the user provided
-    // to ensure they hear the "cool sounds" they added.
-
-    // TODO: In the future, we can add a 'category' or 'theme' param to this function
-    // and select different sets of sounds.
-
+    // Mapping for VARIATIONS
     let fileName = '';
 
     // Helper for random choice
@@ -19,40 +41,44 @@ export const playSound = (soundName: 'welcome' | 'new_request' | 'success' | 'no
 
     switch (soundName) {
         case 'welcome':
-            // we have welcome_1 to welcome_6
             fileName = pick('welcome', 6);
             break;
         case 'new_request':
-            // we have alert_1
             fileName = 'alert_1.wav';
             break;
         case 'success':
-            // we have success_1, success_2
             fileName = pick('success', 2);
             break;
         case 'notification':
-            // notification_1
             fileName = 'notification_1.wav';
             break;
         case 'cancel':
-            // cancel_1, cancel_2
             fileName = pick('cancel', 2);
             break;
         case 'click':
-            // reusing notification_1 as a neutral click sound for now, or could use a distinct one if available
             fileName = 'notification_1.wav';
             break;
     }
 
-    const audio = new Audio(`${basePath}sounds/${fileName}`);
-
-    // Force reset if needed, though 'new Audio' creates fresh instance.
-    audio.currentTime = 0;
+    // Attempt to play from cache or fallback
+    let audio = audioCache[fileName];
+    if (!audio) {
+        console.warn(`[Audio] Sound ${fileName} not in cache, loading on the fly.`);
+        const basePath = getBasePath();
+        audio = new Audio(`${basePath}sounds/${fileName}`);
+    } else {
+        // Clone node implies generic HTML element clone, might not be efficient for Audio API instant reuse.
+        // Better: Reset currentTime and play the same instance, OR clone if overlapping sounds are needed.
+        // For interface sounds, overlapping is rare or fine to cut off.
+        // But for rapid clicks, cloning is better.
+        // Let's optimize: Just .play() allows overlapping? No, it restarts or continues.
+        // Simple clone for overlap support:
+        // audio = audio.cloneNode() as HTMLAudioElement; 
+        // Actually, let's keep it simple: reset time. If we need overlap (spamming click), we might need cloning.
+        audio.currentTime = 0;
+    }
 
     audio.play().catch(e => {
-        // User Interaction Requirement: Browsers block auto-play. 
-        // We log it. The welcome sound might fail if no interaction happened yet.
-        // Subsequent sounds (after clicks) should work.
-        console.warn("[Audio] Play failed (likely no interaction):", e);
+        console.warn("[Audio] Play failed:", e);
     });
 };

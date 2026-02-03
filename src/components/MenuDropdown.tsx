@@ -47,6 +47,22 @@ const MenuDropdown: React.FC<MenuDropdownProps> = ({ onClose }) => {
             </div>
 
             <button
+                onClick={() => {
+                    import('../services/firebase').then(({ auth }) => {
+                        auth.signOut();
+                        onClose();
+                    });
+                }}
+                style={{
+                    width: '100%',
+                    marginBottom: 10,
+                    background: '#2196F3', color: 'white', padding: 8, borderRadius: 5, border: 'none', cursor: 'pointer'
+                }}
+            >
+                {t('home') || 'Home'}
+            </button>
+
+            <button
                 onClick={handleReset}
                 style={{
                     width: '100%',

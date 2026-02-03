@@ -4,8 +4,14 @@ import MapPage from './pages/MapPage';
 import './App.css';
 
 import { LanguageProvider } from './contexts/LanguageContext';
+import { preloadSounds } from './utils/audio';
+import { useEffect } from 'react';
 
 function App() {
+  useEffect(() => {
+    preloadSounds();
+  }, []);
+
   return (
     <LanguageProvider>
       {/* Check deploy.yml: HashRouter is safer for shared hosting/FTP to prevent 404s on refresh */}
