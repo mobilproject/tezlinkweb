@@ -179,6 +179,7 @@ const MapPage: React.FC = () => {
             }
 
             if (tx.Status === 'Cancelled') {
+                playSound('cancel');
                 alert('Ride Cancelled.');
                 setActiveTx(null);
                 setMyCallId(null);
