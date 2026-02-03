@@ -52,6 +52,9 @@ export const translations = {
         cash: 'Cash',
         click: 'Click',
         payme: 'Payme',
+        rateDriver: 'Rate Your Ride',
+        submitRating: 'Submit Rating',
+        currency: '$',
     },
     uz: {
         brandSubtitle: 'Aqlli Shahar Transporti',
@@ -172,7 +175,7 @@ export const translations = {
         offer: 'Пешниҳод',
         acceptPrice: 'Қабули нарх',
         requestRide: 'Дархости такси',
-        offerPriceLabel: 'Нархи пешниҳод ($)',
+        offerPriceLabel: 'Нархи пешниҳод',
         cancel: 'Бекор кардан',
         request: 'Дархост',
         enterValidPrice: 'Лутфан нархи дурустро ворид кунед',

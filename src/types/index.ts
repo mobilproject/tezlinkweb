@@ -8,6 +8,7 @@ export interface UserLocation {
     AvailableSeats: number;
     PassengerCount: number;
     PaymentMethods?: string[];
+    Rating?: number; // 0-5
     LastUpdated: string; // ISO Date
 }
 

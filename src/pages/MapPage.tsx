@@ -4,6 +4,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useNavigate } from 'react-router-dom';
 import Map from '../components/Map';
 import { auth } from '../services/firebase';
+import { playSound } from '../utils/audio';
 import {
     updateLocation,
     observeUserLocations,
@@ -13,13 +14,22 @@ import {
     createTransaction,
     observeTransaction,
     observeCall,
-    clearDatabase,
     getCall,
     cancelCall,
-    cancelTransaction
+    cancelTransaction,
+    recordRideHistory,
+    submitRating,
+    getUserRating,
+    updateLocationWithRating
 } from '../services/ride';
 import type { UserLocation, Call, Transaction } from '../types';
 import { onAuthStateChanged } from 'firebase/auth';
+import LoadingOverlay from '../components/LoadingOverlay';
+import RoleSelection from '../components/RoleSelection';
+import PaymentSelection from '../components/PaymentSelection';
+import MenuDropdown from '../components/MenuDropdown';
+import NegotiationCard from '../components/NegotiationCard';
+import RequestModal from '../components/RequestModal';
 
 const MapPage: React.FC = () => {
     const { t } = useLanguage();
@@ -36,14 +46,34 @@ const MapPage: React.FC = () => {
     const [isLocating, setIsLocating] = useState(true);
     const [myCallId, setMyCallId] = useState<string | null>(null);
 
-    // State needed for Negotiation
-    const [offerPrice, setOfferPrice] = useState('');
-    const [statusMsg, setStatusMsg] = useState('');
+    // Welcome Sound
+    useEffect(() => {
+        playSound('welcome');
+    }, []);
+
+    // WATCH FOR NEW CALLS (Driver)
+    const prevCallsLen = useRef(0);
+    useEffect(() => {
+        if (role === 'Driver' && calls.length > prevCallsLen.current) {
+            // Only play if it's a legitimate new call
+            if (prevCallsLen.current > 0 || calls.length > 0) playSound('new_request');
+        }
+        prevCallsLen.current = calls.length;
+    }, [calls, role]);
+
+    // WATCH FOR OFFERS (Customer)
+    const prevStatus = useRef<string | null>(null);
+    useEffect(() => {
+        if (activeTx && activeTx.Status === 'Negotiating' && prevStatus.current !== 'Negotiating') {
+            // Status changed to Negotiating -> Driver made an offer or counter-offer
+            playSound('notification');
+        }
+        prevStatus.current = activeTx?.Status || null;
+    }, [activeTx]);
 
     // Request Modal State
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [requestLoc, setRequestLoc] = useState<{ lat: number, lon: number } | null>(null);
-    const [initialOffer, setInitialOffer] = useState('');
 
     // Refs for cleanup
     const txSubRef = useRef<(() => void) | null>(null);
@@ -133,11 +163,11 @@ const MapPage: React.FC = () => {
             const iAccepted = (myId === tx.DriverId && tx.DriverAcceptedPrice) || (myId === tx.CustomerId && tx.CustomerAcceptedPrice);
 
             if (tx.Status === 'Agreed') {
-                setStatusMsg(`${t('dealAgreed')}: ${tx.Price}!`);
+                // playSound('success'); // handled in handleAccept or just rely on state
             } else if (iAccepted) {
-                setStatusMsg(`${t('sentOffer')} ${tx.Price}. ${t('waitingResponse')}`);
+                // waiting
             } else {
-                setStatusMsg(`${t('offer')}: ${tx.Price}. ${t('offerAction')}.`);
+                // offer received
             }
 
             if (tx.Status === 'Completed') {
@@ -178,37 +208,8 @@ const MapPage: React.FC = () => {
     const handleMapClick = (lat: number, lon: number) => {
         if (role !== 'Customer') return;
         setRequestLoc({ lat, lon });
-        setInitialOffer('');
+        // setInitialOffer(''); // Removed from state
         setShowRequestModal(true);
-    };
-
-    const submitRequest = async () => {
-        if (!requestLoc || !initialOffer) return;
-        const price = parseFloat(initialOffer);
-        if (isNaN(price) || price <= 0) {
-            alert('Please enter a valid price');
-            return;
-        }
-
-        const callId = crypto.randomUUID();
-        setMyCallId(callId); // TRACK THIS ID
-        const call: Call = {
-            CallId: callId,
-            InitiatorId: user!.uid,
-            InitiatorEmail: user!.email || '',
-            Latitude: myLoc.lat,
-            Longitude: myLoc.lon,
-            InitiatorType: 'Customer',
-            PassengerCount: 1,
-            Status: 'Open',
-            OfferPrice: price,
-            DestLat: requestLoc.lat,
-            DestLon: requestLoc.lon,
-            CreatedAt: new Date().toISOString()
-        };
-        await createCall(call);
-        setShowRequestModal(false);
-        // alert(`Request Sent for ${price}! Waiting for Driver...`);
     };
 
     const handlePinClick = async (markerId: string, type: 'User' | 'Call') => {
@@ -241,31 +242,7 @@ const MapPage: React.FC = () => {
         }
     };
 
-    const handleMakeOffer = async () => {
-        console.log('[MapPage] Making Offer...');
-        if (!activeTx) { console.error('No Active Tx'); return; }
-        if (!offerPrice) { console.error('No Price Input'); return; }
 
-        const price = parseFloat(offerPrice);
-        console.log('[MapPage] Offer Price:', price);
-
-        const myId = user!.uid;
-        const updated = { ...activeTx };
-        updated.Price = price;
-        updated.Status = 'Negotiating';
-
-        if (myId === updated.DriverId) {
-            updated.DriverAcceptedPrice = true;
-            updated.CustomerAcceptedPrice = false;
-        } else {
-            updated.DriverAcceptedPrice = false;
-            updated.CustomerAcceptedPrice = true;
-        }
-
-        console.log('[MapPage] Updating Transaction:', updated);
-        await createTransaction(updated);
-        console.log('[MapPage] Transaction Updated');
-    };
 
     const handleAccept = async () => {
         if (!activeTx) return;
@@ -277,6 +254,13 @@ const MapPage: React.FC = () => {
 
         if (updated.DriverAcceptedPrice && updated.CustomerAcceptedPrice) {
             updated.Status = 'Agreed';
+            playSound('success');
+            // Start the recording process (fire-and-forget or await depending on needs)
+            // Ideally we need the Call object too. Since we might not have it strictly in scope here easily without looking it up,
+            // we'll try to find it from the calls list or just pass what we have.
+            // For better reliability, we might want to fetch the Call from the ID, but for now:
+            const relatedCall = calls.find(c => c.CallId === updated.CallId);
+            recordRideHistory(updated, relatedCall);
         }
 
         await createTransaction(updated);
@@ -287,138 +271,37 @@ const MapPage: React.FC = () => {
 
     // 0. Flashy Loading Overlay
     if (isLocating && role) {
-        return (
-            <div style={{
-                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', // Deep Blue Gradient
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                zIndex: 9999, color: 'white', fontFamily: 'sans-serif'
-            }}>
-                <div className="spinner" style={{
-                    width: '60px', height: '60px',
-                    border: '6px solid rgba(255,255,255,0.3)',
-                    borderTop: '6px solid #ffffff',
-                    borderRadius: '50%',
-                    animation: 'spin 1s linear infinite'
-                }}></div>
-                <h2 style={{ marginTop: '20px', fontSize: '24px', fontWeight: '300' }}>{t('locating')}</h2>
-                <p style={{ opacity: 0.8, fontSize: '14px' }}>{t('pleaseWait')}</p>
-
-                <style>{`
-                    @keyframes spin {
-                        0% { transform: rotate(0deg); }
-                        100% { transform: rotate(360deg); }
-                    }
-                `}</style>
-            </div>
-        );
+        return <LoadingOverlay />;
     }
 
     // Render
     if (!role) {
         return (
-            <div className="login-container">
-                <div className="login-card" style={{ maxWidth: '600px' }}>
-                    <div className="brand-section">
-                        <h1 className="brand-title" style={{ fontSize: '2rem' }}>{t('welcome')}</h1>
-                        <p className="brand-subtitle">{t('chooseJourney')}</p>
-                    </div>
-
-                    <div className="role-options">
-                        <div className="role-card" onClick={() => setRole('Driver')}>
-                            <div className="role-icon">🚖</div>
-                            <div className="role-title">{t('driver')}</div>
-                            <div className="role-desc">{t('driverDesc')}</div>
-                        </div>
-                        <div className="role-card" onClick={() => setRole('Customer')}>
-                            <div className="role-icon">🧕</div>
-                            <div className="role-title">{t('passenger')}</div>
-                            <div className="role-desc">{t('passengerDesc')}</div>
-                        </div>
-                    </div>
-
-                    <button className="submit-btn secondary" onClick={() => auth.signOut()}>
-                        Logout
-                    </button>
-                    <div className="brand-tagline">{t('bottomTagline')}</div>
-                </div>
-            </div>
+            <RoleSelection
+                onSelectRole={setRole}
+                onLogout={() => {
+                    playSound('cancel');
+                    auth.signOut();
+                }}
+            />
         );
     }
 
     // Payment Selection
     if (!isConfirmed && !myCallId && !activeTx) {
-        const togglePayment = (method: string) => {
-            if (paymentMethod.includes(method)) {
-                setPaymentMethod(paymentMethod.filter(m => m !== method));
-            } else {
-                setPaymentMethod([...paymentMethod, method]);
-            }
-        };
-
         return (
-            <div className="login-container">
-                <div className="login-card" style={{ maxWidth: '600px' }}>
-                    <div className="brand-section">
-                        <h1 className="brand-title" style={{ fontSize: '2rem' }}>{t('selectPayment')}</h1>
-                    </div>
-
-                    <div className="role-options">
-                        <div
-                            className="role-card"
-                            onClick={() => togglePayment('Cash')}
-                            style={{ borderColor: paymentMethod.includes('Cash') ? '#00C6FF' : 'rgba(255,255,255,0.1)' }}
-                        >
-                            <div className="role-icon">💵</div>
-                            <div className="role-title">{t('cash')}</div>
-                        </div>
-                        <div
-                            className="role-card"
-                            onClick={() => togglePayment('Click')}
-                            style={{ borderColor: paymentMethod.includes('Click') ? '#00C6FF' : 'rgba(255,255,255,0.1)' }}
-                        >
-                            <div className="role-icon">🟦</div>
-                            <div className="role-title">{t('click')}</div>
-                        </div>
-                        <div
-                            className="role-card"
-                            onClick={() => togglePayment('Payme')}
-                            style={{ borderColor: paymentMethod.includes('Payme') ? '#00C6FF' : 'rgba(255,255,255,0.1)' }}
-                        >
-                            <div className="role-icon">🟩</div>
-                            <div className="role-title">{t('payme')}</div>
-                        </div>
-                    </div>
-
-                    {paymentMethod.length > 0 && (
-                        <button className="submit-btn" style={{ marginTop: '20px' }} onClick={() => setIsConfirmed(true)}>
-                            Continue
-                        </button>
-                    )}
-
-                    <button
-                        onClick={() => auth.signOut()}
-                        style={{
-                            position: 'absolute',
-                            top: '20px',
-                            right: '20px',
-                            background: 'transparent',
-                            border: '1px solid #ccc',
-                            color: '#666',
-                            padding: '8px 16px',
-                            borderRadius: '20px',
-                            cursor: 'pointer',
-                            fontSize: '14px',
-                            fontWeight: '500',
-                            transition: 'all 0.2s',
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.borderColor = '#333'}
-                        onMouseOut={(e) => e.currentTarget.style.borderColor = '#ccc'}
-                    >
-                        Logout ↪
-                    </button>
-                </div>
-            </div>
+            <PaymentSelection
+                paymentMethods={paymentMethod}
+                setPaymentMethods={setPaymentMethod}
+                onContinue={() => {
+                    playSound('click');
+                    setIsConfirmed(true);
+                }}
+                onLogout={() => {
+                    playSound('cancel');
+                    auth.signOut();
+                }}
+            />
         );
     }
 
@@ -508,179 +391,80 @@ const MapPage: React.FC = () => {
                 </button>
 
                 {/* Menu Dropdown */}
-                {showMenu && (
-                    <div style={{
-                        position: 'absolute', top: 60, right: 20, zIndex: 1000,
-                        background: 'white', padding: 10, borderRadius: 5, boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-                        minWidth: 150
-                    }}>
-                        <p style={{ margin: '0 0 10px 0', fontWeight: 'bold' }}>{t('settings')}</p>
-                        <button
-                            onClick={async () => {
-                                if (confirm(t('resetConfirm'))) {
-                                    await clearDatabase();
-                                    alert(t('dbCleared'));
-                                    window.location.reload();
-                                }
-                            }}
-                            style={{
-                                width: '100%',
-                                background: 'red', color: 'white', padding: 8, borderRadius: 5, border: 'none', cursor: 'pointer'
-                            }}
-                        >
-                            {t('resetSystem')}
-                        </button>
-                    </div>
-                )}
+                {showMenu && <MenuDropdown onClose={() => setShowMenu(false)} />}
 
                 {/* Overlay */}
-                {activeTx && (
-                    <div style={{
-                        position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
-                        background: 'white', padding: 20, borderRadius: 10, boxShadow: '0 0 10px rgba(0,0,0,0.3)',
-                        zIndex: 1000, width: 300
-                    }}>
-                        <h3>{t('negotiation')}</h3>
-                        <p>{statusMsg}</p>
-                        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-                            <input
-                                type="number"
-                                value={offerPrice}
-                                onChange={e => setOfferPrice(e.target.value)}
-                                placeholder={t('price')}
-                                style={{ flex: 1, padding: 5 }}
-                            />
-                            <button onClick={handleMakeOffer} style={{ background: '#2196F3', color: 'white', border: 'none', padding: 5 }}>{t('offer')}</button>
-                        </div>
-                        <button onClick={handleAccept} disabled={activeTx.Status !== 'Negotiating'} style={{ width: '100%', padding: 10, background: '#4CAF50', color: 'white', border: 'none' }}>
-                            {t('acceptPrice')}
-                        </button>
+                {activeTx && role && user && (
+                    <NegotiationCard
+                        activeTx={activeTx}
+                        role={role}
+                        activeCall={activeCall}
+                        currentUserId={user.uid}
+                        onMakeOffer={async (price) => {
+                            if (!activeTx) return;
+                            const myId = user.uid;
+                            const updated = { ...activeTx };
+                            updated.Price = price;
+                            updated.Status = 'Negotiating';
 
-                        {/* Navigation Button for Driver */}
-                        {role === 'Driver' && activeTx.Status === 'Agreed' && activeCall && (
-                            <button
-                                onClick={() => {
-                                    const pickup = `${activeCall.Latitude},${activeCall.Longitude}`;
-                                    let url = `https://www.google.com/maps/dir/?api=1&destination=${pickup}&travelmode=driving`; // Default to just pickup
-
-                                    if (activeCall.DestLat && activeCall.DestLon) {
-                                        // Waypoint Mode: Driver -> Pickup -> Destination
-                                        const dest = `${activeCall.DestLat},${activeCall.DestLon}`;
-                                        url = `https://www.google.com/maps/dir/?api=1&destination=${dest}&waypoints=${pickup}&travelmode=driving`;
-                                    }
-
-                                    window.open(url, '_blank');
-                                }}
-                                style={{
-                                    width: '100%', marginTop: '10px', padding: '10px',
-                                    background: '#FF9800', color: 'white', border: 'none', borderRadius: '5px',
-                                    fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
-                                }}
-                            >
-                                <span>🧭</span> {t('navigateToPickup')}
-                            </button>
-                        )}
-
-                        {/* CANCEL / REJECT BUTTON */}
-                        <button
-                            onClick={() => {
-                                if (confirm('Are you sure you want to cancel?')) {
-                                    if (activeTx.CallId) cancelCall(activeTx.CallId);
-                                    cancelTransaction(activeTx.TransactionId);
-                                    // Local cleanup happens via listener
-                                }
-                            }}
-                            style={{
-                                width: '100%', marginTop: '15px', padding: '10px',
-                                background: '#f44336', color: 'white', border: 'none', borderRadius: '5px',
-                                fontWeight: 'bold', cursor: 'pointer'
-                            }}
-                        >
-                            {t('cancel')} / Reject
-                        </button>
-                    </div>
+                            if (myId === updated.DriverId) {
+                                updated.DriverAcceptedPrice = true;
+                                updated.CustomerAcceptedPrice = false;
+                            } else {
+                                updated.DriverAcceptedPrice = false;
+                                updated.CustomerAcceptedPrice = true;
+                            }
+                            await createTransaction(updated);
+                        }}
+                        onAccept={handleAccept}
+                        onCancel={() => {
+                            if (confirm('Are you sure you want to cancel?')) {
+                                if (activeTx.CallId) cancelCall(activeTx.CallId);
+                                cancelTransaction(activeTx.TransactionId);
+                            }
+                        }}
+                        onSubmitRating={async (rating) => {
+                            await submitRating(activeTx, role, rating);
+                            if (myLoc && user && role) {
+                                const currentRating = await getUserRating(user.uid);
+                                updateLocationWithRating(user.uid, myLoc.lat, myLoc.lon, role, 4, 0, [], currentRating);
+                            }
+                            setActiveTx(null);
+                            setActiveCall(null);
+                            setMyCallId(null);
+                            window.location.reload();
+                        }}
+                    />
                 )}
 
                 {/* Request Creation Modal - Redesigned */}
-                {showRequestModal && (
-                    <div style={{
-                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                        backgroundColor: 'rgba(0,0,0,0.5)',
-                        backdropFilter: 'blur(4px)',
-                        display: 'flex', justifyContent: 'center', alignItems: 'center',
-                        zIndex: 2000
-                    }}>
-                        <div style={{
-                            background: 'white',
-                            padding: '24px',
-                            borderRadius: '16px',
-                            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-                            width: '320px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '16px'
-                        }}>
-                            <h3 style={{ margin: 0, fontSize: '20px', color: '#333' }}>{t('requestRide')}</h3>
+                <RequestModal
+                    isOpen={showRequestModal}
+                    onClose={() => setShowRequestModal(false)}
+                    onSubmit={async (price) => {
+                        // Logic from old submitRequest but adapted
+                        if (!requestLoc) return;
 
-                            <h3 style={{ margin: 0, fontSize: '20px', color: '#333' }}>{t('requestRide')}</h3>
-
-                            <div>
-                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', color: '#666' }}>
-                                    {t('offerPriceLabel')}
-                                </label>
-                                <input
-                                    type="number"
-                                    value={initialOffer}
-                                    onChange={e => setInitialOffer(e.target.value)}
-                                    placeholder="50"
-                                    style={{
-                                        width: '100%',
-                                        padding: '12px',
-                                        fontSize: '16px',
-                                        borderRadius: '8px',
-                                        border: '1px solid #e0e0e0',
-                                        outline: 'none',
-                                        boxSizing: 'border-box'
-                                    }}
-                                    autoFocus
-                                />
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
-                                <button
-                                    onClick={() => setShowRequestModal(false)}
-                                    style={{
-                                        flex: 1,
-                                        padding: '12px',
-                                        background: '#f5f5f5',
-                                        color: '#333',
-                                        border: 'none',
-                                        borderRadius: '8px',
-                                        fontWeight: 600,
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    {t('cancel')}
-                                </button>
-                                <button
-                                    onClick={submitRequest}
-                                    style={{
-                                        flex: 1,
-                                        padding: '12px',
-                                        background: '#2196F3',
-                                        color: 'white',
-                                        border: 'none',
-                                        borderRadius: '8px',
-                                        fontWeight: 600,
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    {t('request')}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                        const callId = crypto.randomUUID();
+                        setMyCallId(callId);
+                        const call: Call = {
+                            CallId: callId,
+                            InitiatorId: user!.uid,
+                            InitiatorEmail: user!.email || '',
+                            Latitude: myLoc.lat,
+                            Longitude: myLoc.lon,
+                            InitiatorType: 'Customer',
+                            PassengerCount: 1,
+                            Status: 'Open',
+                            OfferPrice: price,
+                            DestLat: requestLoc.lat,
+                            DestLon: requestLoc.lon,
+                            CreatedAt: new Date().toISOString()
+                        };
+                        await createCall(call);
+                        setShowRequestModal(false);
+                    }}
+                />
             </div>
         </div>
     );

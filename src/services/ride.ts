@@ -8,8 +8,41 @@ import {
     get,
     remove,
 } from 'firebase/database';
-import { database } from './firebase';
+import { collection, addDoc } from 'firebase/firestore';
+import { database, firestore } from './firebase';
 import type { Call, Transaction, UserLocation } from '../types';
+
+// HISTORY
+export const recordRideHistory = async (tx: Transaction, call?: Call) => {
+    try {
+        const historyRef = collection(firestore, 'ride_history');
+        // Combine Tx and Call data for a complete record
+        const record = {
+            // IDs
+            TransactionId: tx.TransactionId,
+            CustomerId: tx.CustomerId,
+            DriverId: tx.DriverId,
+
+            // Financials
+            Price: tx.Price,
+            Status: 'Agreed', // Explicitly marking as the agreed point
+
+            // Locations (Snapshot at Agreement)
+            StartLat: call?.Latitude ?? 0,
+            StartLon: call?.Longitude ?? 0,
+            DestLat: call?.DestLat ?? 0,
+            DestLon: call?.DestLon ?? 0,
+
+            // Metadata
+            RecordedAt: new Date().toISOString(),
+            OriginalCallId: tx.CallId
+        };
+        await addDoc(historyRef, record);
+        console.log('[RideService] Ride History Recorded:', tx.TransactionId);
+    } catch (e) {
+        console.error('[RideService] Failed to record history:', e);
+    }
+};
 
 // LOCATIONS
 export const updateLocation = async (userId: string, lat: number, lon: number, type: string, seats: number = 0, pax: number = 0, paymentMethods: string[] = []) => {
@@ -25,6 +58,64 @@ export const updateLocation = async (userId: string, lat: number, lon: number, t
         LastUpdated: new Date().toISOString()
     };
     await set(locRef, data);
+};
+
+export const updateLocationWithRating = async (userId: string, lat: number, lon: number, type: string, seats: number = 0, pax: number = 0, paymentMethods: string[] = [], rating: number = 5.0) => {
+    const locRef = ref(database, `locations/${userId}`);
+    const data: UserLocation = {
+        UserId: userId,
+        Latitude: lat,
+        Longitude: lon,
+        UserType: type,
+        AvailableSeats: seats,
+        PassengerCount: pax,
+        PaymentMethods: paymentMethods,
+        Rating: rating,
+        LastUpdated: new Date().toISOString()
+    };
+    await set(locRef, data);
+};
+
+// USER PROFILES & RATINGS
+export const getUserRating = async (userId: string): Promise<number> => {
+    try {
+        const snap = await get(ref(database, `users/${userId}/rating`));
+        return snap.val()?.average || 5.0; // Default to 5.0
+    } catch {
+        return 5.0;
+    }
+};
+
+export const submitRating = async (tx: Transaction, raterRole: 'Driver' | 'Customer', rating: number) => {
+    // 1. Update Transaction
+    const txRef = ref(database, `transactions/${tx.TransactionId}`);
+    const updatedTx = { ...tx };
+    if (raterRole === 'Driver') {
+        updatedTx.CustomerRating = rating; // Driver rates Customer
+    } else {
+        updatedTx.DriverRating = rating; // Customer rates Driver
+    }
+    await set(txRef, updatedTx);
+
+    // 2. Update Target User Profile (Aggregate)
+    const targetUserId = raterRole === 'Driver' ? tx.CustomerId : tx.DriverId;
+    const userRatingRef = ref(database, `users/${targetUserId}/rating`);
+
+    // Concurrency Warning: This is a simple read-modify-write. 
+    // In high volume, use a Transaction (firebase/database transaction), but for prototype this is fine.
+    const snap = await get(userRatingRef);
+    const current = snap.val() || { average: 5.0, count: 0 };
+
+    const newCount = (current.count || 0) + 1;
+    // Weighted Average
+    const newAverage = ((current.average || 5.0) * (current.count || 0) + rating) / newCount;
+
+    await set(userRatingRef, {
+        average: newAverage,
+        count: newCount
+    });
+
+    return newAverage;
 };
 
 export const observeUserLocations = (typeToWatch: string, callback: (locs: UserLocation[]) => void) => {

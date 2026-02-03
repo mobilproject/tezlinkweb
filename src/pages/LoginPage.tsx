@@ -5,6 +5,7 @@ import { auth, googleProvider, signInWithPopup } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import './LoginPage.css';
 import { useLanguage } from '../contexts/LanguageContext';
+import { playSound } from '../utils/audio';
 
 const LoginPage: React.FC = () => {
     const { t } = useLanguage();
@@ -27,6 +28,7 @@ const LoginPage: React.FC = () => {
     const handleGoogleLogin = async () => {
         try {
             await signInWithPopup(auth, googleProvider);
+            playSound('success');
             // Auth state listener will handle redirect
         } catch (err: any) {
             setError(err.message);
@@ -42,6 +44,7 @@ const LoginPage: React.FC = () => {
             } else {
                 await signup(email, password);
             }
+            playSound('success');
             navigate('/map');
         } catch (err: any) {
             setError(err.message);
