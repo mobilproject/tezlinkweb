@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import MapPage from './pages/MapPage';
 import './App.css';
@@ -8,13 +8,13 @@ import { LanguageProvider } from './contexts/LanguageContext';
 function App() {
   return (
     <LanguageProvider>
-      {/* Explicitly set basename for production to '/taxi/' to match deployment URL */}
-      <BrowserRouter basename={import.meta.env.PROD ? '/taxi/' : '/'}>
+      {/* Check deploy.yml: HashRouter is safer for shared hosting/FTP to prevent 404s on refresh */}
+      <HashRouter>
         <Routes>
           <Route path="/" element={<LoginPage />} />
           <Route path="/map" element={<MapPage />} />
         </Routes>
-      </BrowserRouter>
+      </HashRouter>
     </LanguageProvider>
   );
 }
