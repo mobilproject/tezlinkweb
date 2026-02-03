@@ -4,8 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { auth, googleProvider, signInWithPopup } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import './LoginPage.css';
+import { useLanguage } from '../contexts/LanguageContext';
 
 const LoginPage: React.FC = () => {
+    const { t } = useLanguage();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [isLogin, setIsLogin] = useState(true);
@@ -51,12 +53,12 @@ const LoginPage: React.FC = () => {
             <div className="login-card">
                 <div className="brand-section">
                     <h1 className="brand-title">TezLink</h1>
-                    <p className="brand-subtitle">Chustliklar birinchi</p>
+                    <p className="brand-subtitle">{t('chustSlogan')}</p>
                     <div className="invitation-badge">
-                        <span>🚀 Invitation Only</span>
+                        <span>{t('invitationOnly')}</span>
                     </div>
                     <p style={{ marginTop: 10, fontSize: '0.85rem', color: 'rgba(255,255,255,0.6)' }}>
-                        Fast. Free. For Chust.
+                        {t('bottomTagline')}
                     </p>
                 </div>
 
@@ -64,12 +66,12 @@ const LoginPage: React.FC = () => {
 
                 <button className="google-btn" onClick={handleGoogleLogin}>
                     <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" style={{ width: 20 }} />
-                    <span>Sign in with Google</span>
+                    <span>{t('googleSignIn')}</span>
                 </button>
 
                 <div className="divider">
                     <div className="line"></div>
-                    <span className="divider-text">OR EMAIL</span>
+                    <span className="divider-text">{t('orEmail')}</span>
                     <div className="line"></div>
                 </div>
 
@@ -77,7 +79,7 @@ const LoginPage: React.FC = () => {
                     <div className="input-group">
                         <input
                             type="email"
-                            placeholder="Email Address"
+                            placeholder={t('emailPlaceholder')}
                             value={email}
                             onChange={e => setEmail(e.target.value)}
                             required
@@ -86,19 +88,19 @@ const LoginPage: React.FC = () => {
                     <div className="input-group">
                         <input
                             type="password"
-                            placeholder="Password"
+                            placeholder={t('passwordPlaceholder')}
                             value={password}
                             onChange={e => setPassword(e.target.value)}
                             required
                         />
                     </div>
                     <button type="submit" className="submit-btn">
-                        {isLogin ? 'Log In' : 'Create Account'}
+                        {isLogin ? t('loginButton') : t('signupButton')}
                     </button>
                 </form>
 
                 <button className="toggle-link" onClick={() => setIsLogin(!isLogin)}>
-                    {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Log In"}
+                    {isLogin ? t('toggleLogin') : t('toggleSignup')}
                 </button>
             </div>
         </div>
