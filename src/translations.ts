@@ -21,7 +21,7 @@ export const translations = {
         passengerDesc: 'Request a ride quickly',
         chustSlogan: 'Chustliklar birinchi',
         invitationOnly: '🚀 Invitation Only',
-        bottomTagline: 'Fast. Free. For Chust.',
+        bottomTagline: 'Fast. Free. People of Chust.',
         // New MapPage Keys
         menu: 'Menu',
         close: 'Close',
@@ -62,7 +62,7 @@ export const translations = {
         passengerDesc: 'Tez taksi chaqiring',
         chustSlogan: 'Chustliklar birinchi',
         invitationOnly: '🚀 Faqat Taklifnoma Bilan',
-        bottomTagline: 'Tez. Bepul. Chust uchun.',
+        bottomTagline: 'Tez va Qulay. Chustliklar uchun.',
         // New MapPage Keys
         menu: 'Menyu',
         close: 'Yopish',
@@ -85,8 +85,8 @@ export const translations = {
         request: 'Buyurtma',
         enterValidPrice: 'Iltimos, to\'g\'ri narx kiriting',
         pickup: 'Olib ketish',
-        locating: 'Sizni aniqlayapmiz...',
-        pleaseWait: 'Iltimos, joylashuvingizni aniqlayotganimizda kuting.',
+        locating: 'Sizni xatritada aniqlayapmiz...',
+        pleaseWait: 'Iltimos, joylashuvingizni xatritadan aniqlayotganimizda kuting.',
         navigateToPickup: 'Mijoz oldiga borish',
         selectPayment: "To'lov turini tanlang",
         cash: 'Naqd pul',
@@ -102,7 +102,7 @@ export const translations = {
         passengerDesc: 'Быстрый заказ такси',
         chustSlogan: 'Chustliklar birinchi',
         invitationOnly: '🚀 Только по приглашениям',
-        bottomTagline: 'Быстро. Бесплатно. Для Чуста.',
+        bottomTagline: 'Быстро и Удобно. Пока только Для жителей Чуста.',
         // New MapPage Keys
         menu: 'Меню',
         close: 'Закрыть',
@@ -138,7 +138,7 @@ export const translations = {
         passengerDesc: 'Таксиро зуд фармоиш диҳед',
         chustSlogan: 'Chustliklar birinchi',
         invitationOnly: '🚀 Танҳо бо даъватнома',
-        bottomTagline: 'Тез. Ройгон. Барои Чуст.',
+        bottomTagline: 'Тез. Барои Чуст.',
         // New MapPage Keys
         menu: 'Меню',
         close: 'Пӯшидан',
