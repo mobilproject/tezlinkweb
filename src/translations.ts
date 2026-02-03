@@ -21,7 +21,7 @@ export const translations = {
         passengerDesc: 'Request a ride quickly',
         chustSlogan: 'Chustliklar birinchi',
         invitationOnly: '🚀 Invitation Only',
-        bottomTagline: 'Fast. Free. People of Chust.',
+        bottomTagline: 'Fast and Easy. People of Chust.',
         // New MapPage Keys
         menu: 'Menu',
         close: 'Close',
