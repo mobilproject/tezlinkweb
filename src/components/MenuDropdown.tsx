@@ -31,7 +31,10 @@ const MenuDropdown: React.FC<MenuDropdownProps> = ({ onClose }) => {
                     {(['en', 'uz', 'ru', 'tj'] as const).map(lang => (
                         <button
                             key={lang}
-                            onClick={() => setLanguage(lang)}
+                            onClick={() => {
+                                setLanguage(lang);
+                                onClose();
+                            }}
                             style={{
                                 padding: 5, fontSize: '0.8rem', cursor: 'pointer',
                                 border: '1px solid #ccc', borderRadius: 3, background: '#f9f9f9'
