@@ -1,10 +1,12 @@
 export type UserRole = 'Driver' | 'Customer';
+export type Gender = 'Male' | 'Female';
 
 export interface UserLocation {
     UserId: string;
     Latitude: number;
     Longitude: number;
     UserType: string;
+    Gender?: Gender;
     AvailableSeats: number;
     PassengerCount: number;
     PaymentMethods?: string[];
@@ -20,6 +22,7 @@ export interface Call {
     Latitude: number;
     Longitude: number;
     InitiatorType: string;
+    InitiatorGender?: Gender;
     PassengerCount: number;
     Status: 'Open' | 'Accepted' | 'Completed' | 'Cancelled';
     AcceptedBy?: string;

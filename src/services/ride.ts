@@ -45,13 +45,14 @@ export const recordRideHistory = async (tx: Transaction, call?: Call) => {
 };
 
 // LOCATIONS
-export const updateLocation = async (userId: string, lat: number, lon: number, type: string, seats: number = 0, pax: number = 0, paymentMethods: string[] = []) => {
+export const updateLocation = async (userId: string, lat: number, lon: number, type: string, gender: string | null, seats: number = 0, pax: number = 0, paymentMethods: string[] = []) => {
     const locRef = ref(database, `locations/${userId}`);
     const data: UserLocation = {
         UserId: userId,
         Latitude: lat,
         Longitude: lon,
         UserType: type,
+        Gender: gender as any, // Cast to match optional Gender type if needed, or update call sites
         AvailableSeats: seats,
         PassengerCount: pax,
         PaymentMethods: paymentMethods,
@@ -60,13 +61,14 @@ export const updateLocation = async (userId: string, lat: number, lon: number, t
     await set(locRef, data);
 };
 
-export const updateLocationWithRating = async (userId: string, lat: number, lon: number, type: string, seats: number = 0, pax: number = 0, paymentMethods: string[] = [], rating: number = 5.0) => {
+export const updateLocationWithRating = async (userId: string, lat: number, lon: number, type: string, gender: string | null, seats: number = 0, pax: number = 0, paymentMethods: string[] = [], rating: number = 5.0) => {
     const locRef = ref(database, `locations/${userId}`);
     const data: UserLocation = {
         UserId: userId,
         Latitude: lat,
         Longitude: lon,
         UserType: type,
+        Gender: gender as any,
         AvailableSeats: seats,
         PassengerCount: pax,
         PaymentMethods: paymentMethods,

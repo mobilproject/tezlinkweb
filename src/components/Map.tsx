@@ -47,6 +47,7 @@ interface MapProps {
         price?: number;
         color?: 'red' | 'green' | 'blue' | 'yellow'; // Simple color mapping
         userType?: string;
+        gender?: 'Male' | 'Female';
         isMe?: boolean;
         paymentMethods?: string[];
         onClick?: () => void;
@@ -84,7 +85,11 @@ const Map: React.FC<MapProps> = ({ centerLat, centerLon, zoom = 13, markers, onM
                 } else if (m.userType) {
                     // Custom User/Driver Marker with Payment Icon
                     const isCar = m.userType === 'Driver';
-                    const icon = isCar ? '🚖' : '🧕';
+                    let icon = '🧕'; // Default Female/App style
+
+                    if (isCar) icon = '🚖';
+                    else if (m.gender === 'Male') icon = '👨';
+                    // else if Female or undefined, remains '🧕'
 
                     let payIcons = '';
                     if (m.paymentMethods) {

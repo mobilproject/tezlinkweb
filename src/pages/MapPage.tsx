@@ -22,9 +22,10 @@ import {
     getUserRating,
     updateLocationWithRating
 } from '../services/ride';
-import type { UserLocation, Call, Transaction } from '../types';
+import type { UserLocation, Call, Transaction, Gender } from '../types';
 import { onAuthStateChanged } from 'firebase/auth';
 import LoadingOverlay from '../components/LoadingOverlay';
+import GenderSelection from '../components/GenderSelection';
 import RoleSelection from '../components/RoleSelection';
 import PaymentSelection from '../components/PaymentSelection';
 import MenuDropdown from '../components/MenuDropdown';
@@ -35,6 +36,7 @@ const MapPage: React.FC = () => {
     const { t } = useLanguage();
     const navigate = useNavigate();
     const [user, setUser] = useState(auth.currentUser);
+    const [gender, setGender] = useState<Gender | null>(null);
     const [role, setRole] = useState<'Driver' | 'Customer' | null>(null);
     const [paymentMethod, setPaymentMethod] = useState<string[]>([]);
     const [isConfirmed, setIsConfirmed] = useState(false);
@@ -102,7 +104,7 @@ const MapPage: React.FC = () => {
                 setIsLocating(false);
                 // Push to Firebase
                 if (isConfirmed) {
-                    updateLocation(user.uid, latitude, longitude, role, role === 'Driver' ? 4 : 0, role === 'Customer' ? 1 : 0, paymentMethod);
+                    updateLocation(user.uid, latitude, longitude, role, gender, role === 'Driver' ? 4 : 0, role === 'Customer' ? 1 : 0, paymentMethod);
                 }
             },
             (err) => console.error('[MapPage] GPS Error:', err),
@@ -275,10 +277,24 @@ const MapPage: React.FC = () => {
         return <LoadingOverlay />;
     }
 
+    // Gender Selection
+    if (!gender) {
+        return (
+            <GenderSelection
+                onSelectGender={setGender}
+                onLogout={() => {
+                    playSound('cancel');
+                    auth.signOut();
+                }}
+            />
+        );
+    }
+
     // Render
     if (!role) {
         return (
             <RoleSelection
+                gender={gender}
                 onSelectRole={setRole}
                 onLogout={() => {
                     playSound('cancel');
@@ -307,6 +323,8 @@ const MapPage: React.FC = () => {
     }
 
     // Build Markers
+    console.log('[MapPage] Rendering Markers. Gender:', gender);
+
     const markers = [
         ...others.map(u => {
             let userType = u.UserType;
@@ -318,6 +336,7 @@ const MapPage: React.FC = () => {
                 lat: Number(u.Latitude),
                 lon: Number(u.Longitude),
                 userType: userType, // Pass userType explicitly for icon logic
+                gender: u.Gender,
                 paymentMethods: u.PaymentMethods,
                 // fallback color logic if needed by old map code
                 color: (userType === 'Driver' ? 'green' : 'red') as any,
@@ -327,6 +346,22 @@ const MapPage: React.FC = () => {
         }),
     ];
 
+    // Add ME marker (so I can see myself before requesting)
+    if (myLoc && role && user) {
+        markers.push({
+            id: 'me',
+            lat: myLoc.lat,
+            lon: myLoc.lon,
+            userType: role,
+            gender: gender || undefined, // Use my local state gender
+            isMe: true,
+            title: 'You',
+            color: 'blue' as any,
+            onClick: () => { }
+        });
+    }
+
+    // Add Call Markers (Pickup + Destination)
     // Add Call Markers (Pickup + Destination)
     calls.forEach(c => {
         // 1. Pickup Marker (Human Icon)
@@ -335,6 +370,7 @@ const MapPage: React.FC = () => {
             lat: Number(c.Latitude),
             lon: Number(c.Longitude),
             userType: 'Customer', // Shows Human Icon
+            gender: c.InitiatorGender, // Pass gender explicitly!
             title: `${t('pickup')} (User)`,
             color: 'red', // Fallback
             // Pass payment info if available (would need to be added to Call type or fetched)
@@ -342,6 +378,7 @@ const MapPage: React.FC = () => {
         } as any);
 
         // 2. Destination Marker (Price Tag)
+        // ... (existing logic for dest)
         if (c.DestLat && c.DestLon) {
             markers.push({
                 id: `${c.CallId}_dest`,
@@ -353,10 +390,6 @@ const MapPage: React.FC = () => {
                 onClick: () => handlePinClick(c.CallId, 'Call')
             } as any);
         } else {
-            // If no destination (legacy?), just show price at pickup? 
-            // Actually, forcing visual split is better. If no dest, maybe the original logic applies.
-            // But for now, let's assume valid calls have dest. 
-            // If not, we can fallback to showing price at pickup.
             markers.push({
                 id: `${c.CallId}_legacy`,
                 lat: Number(c.Latitude),
@@ -428,7 +461,7 @@ const MapPage: React.FC = () => {
                             await submitRating(activeTx, role, rating);
                             if (myLoc && user && role) {
                                 const currentRating = await getUserRating(user.uid);
-                                updateLocationWithRating(user.uid, myLoc.lat, myLoc.lon, role, 4, 0, [], currentRating);
+                                updateLocationWithRating(user.uid, myLoc.lat, myLoc.lon, role, gender, 4, 0, [], currentRating);
                             }
                             setActiveTx(null);
                             setActiveCall(null);
@@ -455,6 +488,7 @@ const MapPage: React.FC = () => {
                             Latitude: myLoc.lat,
                             Longitude: myLoc.lon,
                             InitiatorType: 'Customer',
+                            InitiatorGender: gender || undefined, // PASS GENDER HERE
                             PassengerCount: 1,
                             Status: 'Open',
                             OfferPrice: price,

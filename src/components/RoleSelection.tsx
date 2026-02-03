@@ -1,13 +1,17 @@
 import React from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
+import type { Gender } from '../types';
 
 interface RoleSelectionProps {
+    gender?: Gender | null;
     onSelectRole: (role: 'Driver' | 'Customer') => void;
     onLogout: () => void;
 }
 
-const RoleSelection: React.FC<RoleSelectionProps> = ({ onSelectRole, onLogout }) => {
+const RoleSelection: React.FC<RoleSelectionProps> = ({ gender, onSelectRole, onLogout }) => {
     const { t } = useLanguage();
+
+    const customerIcon = gender === 'Male' ? '👨' : '🧕';
 
     return (
         <div className="login-container">
@@ -24,7 +28,7 @@ const RoleSelection: React.FC<RoleSelectionProps> = ({ onSelectRole, onLogout })
                         <div className="role-desc">{t('driverDesc')}</div>
                     </div>
                     <div className="role-card" onClick={() => onSelectRole('Customer')}>
-                        <div className="role-icon">🧕</div>
+                        <div className="role-icon">{customerIcon}</div>
                         <div className="role-title">{t('passenger')}</div>
                         <div className="role-desc">{t('passengerDesc')}</div>
                     </div>
