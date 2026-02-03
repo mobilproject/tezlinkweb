@@ -341,6 +341,7 @@ const MapPage: React.FC = () => {
                 // fallback color logic if needed by old map code
                 color: (userType === 'Driver' ? 'green' : 'red') as any,
                 title: userType,
+                isMe: false,
                 onClick: () => handlePinClick(u.UserId, 'User')
             };
         }),
@@ -356,8 +357,9 @@ const MapPage: React.FC = () => {
             gender: gender || undefined, // Use my local state gender
             isMe: true,
             title: 'You',
+            paymentMethods: paymentMethod,
             color: 'blue' as any,
-            onClick: () => { }
+            onClick: async () => { }
         });
     }
 
