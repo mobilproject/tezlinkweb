@@ -50,14 +50,40 @@ interface MapProps {
         gender?: 'Male' | 'Female';
         isMe?: boolean;
         paymentMethods?: string[];
+        availableSeats?: number;
         onClick?: () => void;
     }>;
     onMapClick?: (lat: number, lon: number) => void;
+    onBoundsChanged?: (center: [number, number], radiusInM: number) => void;
 }
 
-const Map: React.FC<MapProps> = ({ centerLat, centerLon, zoom = 13, markers, onMapClick }) => {
+const Map: React.FC<MapProps> = ({ centerLat, centerLon, zoom = 13, markers, onMapClick, onBoundsChanged }) => {
+
+    const MapHandler = () => {
+        const map = useMapEvents({
+            moveend: () => {
+                const center = map.getCenter();
+                const bounds = map.getBounds();
+                const northEast = bounds.getNorthEast();
+                // Approximate radius: Distance from Center to Corner
+                // This is a rough circle encompassing the view
+                const radius = map.distance(center, northEast);
+                if (onBoundsChanged) onBoundsChanged([center.lat, center.lng], radius);
+            },
+            zoomend: () => {
+                const center = map.getCenter();
+                const bounds = map.getBounds();
+                const northEast = bounds.getNorthEast();
+                const radius = map.distance(center, northEast);
+                if (onBoundsChanged) onBoundsChanged([center.lat, center.lng], radius);
+            }
+        });
+        return null;
+    };
+
     return (
         <MapContainer center={[centerLat, centerLon]} zoom={zoom} style={{ height: '100%', width: '100%' }}>
+            <MapHandler />
             <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -85,6 +111,9 @@ const Map: React.FC<MapProps> = ({ centerLat, centerLon, zoom = 13, markers, onM
                 } else if (m.userType) {
                     // Custom User/Driver Marker with Payment Icon
                     const isCar = m.userType === 'Driver';
+                    // Check availability: If Driver and no seats, they are busy
+                    const isBusy = isCar && (m.availableSeats === 0);
+
                     let icon = '🧕'; // Default Female/App style
 
                     if (isCar) icon = '🚖';
@@ -98,15 +127,21 @@ const Map: React.FC<MapProps> = ({ centerLat, centerLon, zoom = 13, markers, onM
                         if (m.paymentMethods.includes('Payme')) payIcons += '🟩';
                     }
 
+                    // Busy styling: maybe a red border or opacity? 
+                    // Let's use a Red background for the bubble if busy, White if free.
+                    const bubbleColor = isBusy ? '#ffebee' : 'white';
+                    const borderColor = isBusy ? '#d32f2f' : 'white';
+                    // Also maybe a status text?
+
                     markerIcon = L.divIcon({
                         className: 'custom-user-marker',
                         html: `
                             <div style="position: relative; width: 40px; height: 40px; display: flex; flex-direction: column; align-items: center;">
-                                <div style="background: white; padding: 4px; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.3); display: flex; gap: 2px;">
-                                    <span>${icon}</span>
+                                <div style="background: ${bubbleColor}; padding: 4px; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.3); display: flex; gap: 2px; border: 2px solid ${borderColor};">
+                                    <span style="${isBusy ? 'filter: grayscale(100%); opacity: 0.7;' : ''}">${icon}</span>
                                     ${payIcons ? `<span style="font-size: 14px; letter-spacing: -2px;">${payIcons}</span>` : ''}
                                 </div>
-                                <div style="width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid white; margin-top: -1px;"></div>
+                                <div style="width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid ${borderColor}; margin-top: -2px;"></div>
                                 ${m.isMe ? `
                                     <div style="position: absolute; top: -25px; left: 50%; transform: translateX(-50%); background: black; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; white-space: nowrap;">
                                         You

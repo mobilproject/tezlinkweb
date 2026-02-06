@@ -2,15 +2,26 @@ import {
     ref,
     set,
     onValue,
-    query,
+    query as dbQuery,
     orderByChild,
     equalTo,
     get,
     remove,
 } from 'firebase/database';
-import { collection, addDoc } from 'firebase/firestore';
+import {
+    collection,
+    addDoc,
+    doc,
+    setDoc,
+    onSnapshot,
+    query as fsQuery,
+    orderBy,
+    startAt as fsStartAt,
+    endAt as fsEndAt
+} from 'firebase/firestore';
 import { database, firestore } from './firebase';
 import type { Call, Transaction, UserLocation } from '../types';
+import * as geofire from 'geofire-common';
 
 // HISTORY
 export const recordRideHistory = async (tx: Transaction, call?: Call) => {
@@ -46,36 +57,50 @@ export const recordRideHistory = async (tx: Transaction, call?: Call) => {
 
 // LOCATIONS
 export const updateLocation = async (userId: string, lat: number, lon: number, type: string, gender: string | null, seats: number = 0, pax: number = 0, paymentMethods: string[] = []) => {
-    const locRef = ref(database, `locations/${userId}`);
-    const data: UserLocation = {
-        UserId: userId,
-        Latitude: lat,
-        Longitude: lon,
-        UserType: type,
-        Gender: gender as any, // Cast to match optional Gender type if needed, or update call sites
-        AvailableSeats: seats,
-        PassengerCount: pax,
-        PaymentMethods: paymentMethods,
-        LastUpdated: new Date().toISOString()
-    };
-    await set(locRef, data);
+    try {
+        const hash = geofire.geohashForLocation([lat, lon]);
+        const locRef = doc(firestore, 'locations', userId);
+
+        const data: UserLocation = {
+            UserId: userId,
+            Latitude: lat,
+            Longitude: lon,
+            g: hash, // Geohash
+            UserType: type,
+            Gender: gender as any,
+            AvailableSeats: seats,
+            PassengerCount: pax,
+            PaymentMethods: paymentMethods,
+            LastUpdated: new Date().toISOString()
+        };
+        await setDoc(locRef, data);
+    } catch (e) {
+        console.error('[RideService] Failed to update location in Firestore:', e);
+    }
 };
 
 export const updateLocationWithRating = async (userId: string, lat: number, lon: number, type: string, gender: string | null, seats: number = 0, pax: number = 0, paymentMethods: string[] = [], rating: number = 5.0) => {
-    const locRef = ref(database, `locations/${userId}`);
-    const data: UserLocation = {
-        UserId: userId,
-        Latitude: lat,
-        Longitude: lon,
-        UserType: type,
-        Gender: gender as any,
-        AvailableSeats: seats,
-        PassengerCount: pax,
-        PaymentMethods: paymentMethods,
-        Rating: rating,
-        LastUpdated: new Date().toISOString()
-    };
-    await set(locRef, data);
+    try {
+        const hash = geofire.geohashForLocation([lat, lon]);
+        const locRef = doc(firestore, 'locations', userId);
+
+        const data: UserLocation = {
+            UserId: userId,
+            Latitude: lat,
+            Longitude: lon,
+            g: hash,
+            UserType: type,
+            Gender: gender as any,
+            AvailableSeats: seats,
+            PassengerCount: pax,
+            PaymentMethods: paymentMethods,
+            Rating: rating,
+            LastUpdated: new Date().toISOString()
+        };
+        await setDoc(locRef, data);
+    } catch (e) {
+        console.error('[RideService] Failed to update location with rating in Firestore:', e);
+    }
 };
 
 // USER PROFILES & RATINGS
@@ -120,30 +145,73 @@ export const submitRating = async (tx: Transaction, raterRole: 'Driver' | 'Custo
     return newAverage;
 };
 
-export const observeUserLocations = (typeToWatch: string, callback: (locs: UserLocation[]) => void) => {
-    const locationsRef = ref(database, 'locations');
-    // Simple listener, filtering client side because RTDB query capabilities are limited for multiple fields
-    return onValue(locationsRef, (snapshot) => {
-        const val = snapshot.val();
-        if (!val) {
-            console.log('[RideService] No Locations found.');
-            callback([]);
-            return;
-        }
-        const all = Object.values(val) as UserLocation[];
-        // Filter by Type AND Stale (> 5 mins)
+// GEO-QUERY OBSERVER
+export const observeUserLocations = (
+    typeToWatch: string,
+    center: [number, number],
+    radiusInM: number,
+    callback: (locs: UserLocation[]) => void
+) => {
+    // 1. Calculate Geohash Bounds
+    const bounds = geofire.geohashQueryBounds(center, radiusInM);
+    const locationsColl = collection(firestore, 'locations');
+
+    // Internal Cache to deduplicate and store results from multiple listeners
+    const results = new Map<string, UserLocation>();
+    const unsubs: (() => void)[] = [];
+
+    const updateResults = () => {
+        const all = Array.from(results.values());
+
+        // Client-side filtering
         const now = new Date();
         const filtered = all.filter(u => {
             if (u.UserType !== typeToWatch) return false;
 
+            // Stale Check
             const lastUpdate = new Date(u.LastUpdated);
             const diffMins = (now.getTime() - lastUpdate.getTime()) / 60000;
-            return diffMins < 5; // Active only
+            if (diffMins >= 10) return false; // Increased to 10 mins for Firestore flexibility
+
+            // Strict Distance Check (Geohashes are rectangular approximations)
+            const lat = Number(u.Latitude);
+            const lon = Number(u.Longitude);
+            const dist = geofire.distanceBetween([lat, lon], center) * 1000; // in Meters
+            return dist <= radiusInM;
         });
 
-        console.log(`[RideService] Locations: Raw=${all.length} Filtered=${filtered.length}`);
         callback(filtered);
-    });
+    };
+
+    // 2. Create Listeners for each Bound
+    for (const b of bounds) {
+        const q = fsQuery(
+            locationsColl,
+            orderBy('g'),
+            fsStartAt(b[0]),
+            fsEndAt(b[1])
+        );
+
+        const unsub = onSnapshot(q, (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+                const u = change.doc.data() as UserLocation;
+                if (change.type === 'removed') {
+                    results.delete(u.UserId);
+                } else {
+                    results.set(u.UserId, u);
+                }
+            });
+            updateResults();
+        }, (err) => {
+            console.error('[RideService] Firestore Geo Listen Error:', err);
+        });
+        unsubs.push(unsub);
+    }
+
+    return () => {
+        unsubs.forEach(u => u());
+        results.clear();
+    };
 };
 
 // CALLS
@@ -165,7 +233,7 @@ export const observeCalls = (callback: (calls: Call[]) => void) => {
     console.log('[RideService] Observing Calls...');
     // QUERY: We ask Firebase for calls where Status == 'Open'
     // LIMITATION: Firebase RTDB can only filter by ONE property (Status). It cannot filter by 'Time' AND 'Status' simultaneously.
-    const callsRef = query(ref(database, 'calls'), orderByChild('Status'), equalTo('Open'));
+    const callsRef = dbQuery(ref(database, 'calls'), orderByChild('Status'), equalTo('Open'));
 
     return onValue(callsRef, (snapshot) => {
         const val = snapshot.val();

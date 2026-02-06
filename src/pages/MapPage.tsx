@@ -24,7 +24,6 @@ import {
 } from '../services/ride';
 import type { UserLocation, Call, Transaction, Gender } from '../types';
 import { onAuthStateChanged } from 'firebase/auth';
-import LoadingOverlay from '../components/LoadingOverlay';
 import GenderSelection from '../components/GenderSelection';
 import RoleSelection from '../components/RoleSelection';
 import PaymentSelection from '../components/PaymentSelection';
@@ -104,7 +103,11 @@ const MapPage: React.FC = () => {
                 setIsLocating(false);
                 // Push to Firebase
                 if (isConfirmed) {
-                    updateLocation(user.uid, latitude, longitude, role, gender, role === 'Driver' ? 4 : 0, role === 'Customer' ? 1 : 0, paymentMethod);
+                    // Start of Selection
+                    const isBusy = activeTx || myCallId;
+                    const seats = (role === 'Driver') ? (isBusy ? 0 : 4) : 0;
+                    updateLocation(user.uid, latitude, longitude, role, gender, seats, role === 'Customer' ? 1 : 0, paymentMethod);
+                    // End of Selection
                 }
             },
             (err) => console.error('[MapPage] GPS Error:', err),
@@ -113,19 +116,37 @@ const MapPage: React.FC = () => {
         return () => navigator.geolocation.clearWatch(watchId);
     }, [user, role]);
 
-    // 3. Listen for Others & Calls
+    // 3. Listen for Others & Calls (GEO-QUERY)
+    const [mapView, setMapView] = useState<{ center: [number, number], radius: number }>({
+        center: [40.7128, -74.0060], // Default
+        radius: 5000 // Default 5km
+    });
+
+    // Update initial view when myLoc changes (first load)
+    useEffect(() => {
+        if (myLoc) {
+            setMapView(prev => ({ ...prev, center: [myLoc.lat, myLoc.lon] }));
+        }
+    }, [myLoc]);
+
     useEffect(() => {
         if (!user || !role) return;
-        console.log('[MapPage] Subscribing to Data...');
+        console.log('[MapPage] Subscribing to Data (Geo)...', mapView.center, mapView.radius);
 
         const targetType = role === 'Driver' ? 'Customer' : 'Driver';
-        // Listen for users
-        const unsubLocs = observeUserLocations(targetType, (locs) => {
-            console.log(`[MapPage] Received ${locs.length} ${targetType}s`);
+
+        // Listen for users (Geospatial)
+        const unsubLocs = observeUserLocations(targetType, mapView.center, mapView.radius, (locs) => {
+            console.log(`[MapPage] Received ${locs.length} ${targetType}s in view`);
             setOthers(locs);
         });
 
-        // Listen for calls (Everyone)
+        // Listen for calls (Everyone) - Still global for now as ride service for calls wasn't requested to be geo-filtered yet, or stick to same?
+        // User request specifically said "users to select... based on location". 
+        // Calls are "users" in a sense (initiators).
+        // ride.ts observeCalls is still global. Let's keep it global for simplicity unless requested to filter calls too.
+        // Usually drivers want to see calls nearby. `findActiveCall` does local filtering.
+        // Let's stick to observing Users via Geo.
         const unsubCalls = observeCalls((vals) => {
             console.log(`[MapPage] Received ${vals.length} Calls`);
             setCalls(vals);
@@ -135,7 +156,13 @@ const MapPage: React.FC = () => {
             unsubLocs();
             unsubCalls();
         };
-    }, [user, role]);
+    }, [user, role, mapView.center[0], mapView.center[1], mapView.radius]); // Debounce?
+
+    const handleBoundsChange = (center: [number, number], radius: number) => {
+        // Debounce optimization could happen here, but for now direct update
+        // Prevent excessive updates if change is small? 
+        setMapView({ center, radius });
+    };
 
     // 4. Handle Negotiation Sync (Port of LoadTransaction)
     const loadTransaction = (txId: string) => {
@@ -272,55 +299,8 @@ const MapPage: React.FC = () => {
 
     const [showMenu, setShowMenu] = useState(false);
 
-    // 0. Flashy Loading Overlay
-    if (isLocating && role) {
-        return <LoadingOverlay />;
-    }
-
-    // Gender Selection
-    if (!gender) {
-        return (
-            <GenderSelection
-                onSelectGender={setGender}
-                onLogout={() => {
-                    playSound('cancel');
-                    auth.signOut();
-                }}
-            />
-        );
-    }
-
-    // Render
-    if (!role) {
-        return (
-            <RoleSelection
-                gender={gender}
-                onSelectRole={setRole}
-                onLogout={() => {
-                    playSound('cancel');
-                    auth.signOut();
-                }}
-            />
-        );
-    }
-
-    // Payment Selection
-    if (!isConfirmed && !myCallId && !activeTx) {
-        return (
-            <PaymentSelection
-                paymentMethods={paymentMethod}
-                setPaymentMethods={setPaymentMethod}
-                onContinue={() => {
-                    playSound('click');
-                    setIsConfirmed(true);
-                }}
-                onLogout={() => {
-                    playSound('cancel');
-                    auth.signOut();
-                }}
-            />
-        );
-    }
+    // 0. Flashy Loading Overlay - Removed to allow map loading in background.
+    // We rely on the z-index overlays to cover the map while loading/selecting.
 
     // Build Markers
     console.log('[MapPage] Rendering Markers. Gender:', gender);
@@ -328,19 +308,39 @@ const MapPage: React.FC = () => {
     const markers = [
         ...others.map(u => {
             let userType = u.UserType;
-            // Clean up user type just in case
             if (userType !== 'Driver' && userType !== 'Customer') userType = 'Customer';
 
             return {
                 id: u.UserId,
                 lat: Number(u.Latitude),
                 lon: Number(u.Longitude),
-                userType: userType, // Pass userType explicitly for icon logic
+                userType: userType,
                 gender: u.Gender,
                 paymentMethods: u.PaymentMethods,
-                // fallback color logic if needed by old map code
+                availableSeats: u.AvailableSeats,
                 color: (userType === 'Driver' ? 'green' : 'red') as any,
                 title: userType,
+                popupContent: (
+                    <div style={{ minWidth: 150 }}>
+                        <h3 style={{ margin: '0 0 5px', fontSize: '1rem' }}>{u.UserType === 'Driver' ? t('driver') : t('passenger')}</h3>
+                        {u.Rating && (
+                            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 5 }}>
+                                <span style={{ color: '#FFD700', marginRight: 5 }}>⭐</span>
+                                <span>{u.Rating.toFixed(1)}</span>
+                            </div>
+                        )}
+                        {u.UserType === 'Driver' && u.AvailableSeats === 0 && (
+                            <div style={{ color: 'red', fontWeight: 'bold', marginTop: 5 }}>
+                                {t('busy')}
+                            </div>
+                        )}
+                        {u.PaymentMethods && u.PaymentMethods.length > 0 && (
+                            <div style={{ fontSize: '0.9rem', color: '#666', marginTop: 5 }}>
+                                {u.PaymentMethods.join(', ')}
+                            </div>
+                        )}
+                    </div>
+                ),
                 isMe: false,
                 onClick: () => handlePinClick(u.UserId, 'User')
             };
@@ -348,25 +348,34 @@ const MapPage: React.FC = () => {
     ];
 
     // Add ME marker (so I can see myself before requesting)
-    if (myLoc && role && user) {
+    if (myLoc && user && role) {
         markers.push({
             id: 'me',
             lat: myLoc.lat,
             lon: myLoc.lon,
             userType: role,
-            gender: gender || undefined, // Use my local state gender
+            gender: gender || undefined,
             isMe: true,
             title: 'You',
+            popupContent: (
+                <div style={{ textAlign: 'center' }}>
+                    <strong>{t('welcome')}</strong>
+                    {paymentMethod && paymentMethod.length > 0 && (
+                        <div style={{ fontSize: '0.8rem', color: '#666', marginTop: 5 }}>
+                            {paymentMethod.join(', ')}
+                        </div>
+                    )}
+                </div>
+            ),
             paymentMethods: paymentMethod,
+            availableSeats: (role === 'Driver') ? ((activeTx || myCallId) ? 0 : 4) : 0,
             color: 'blue' as any,
             onClick: async () => { }
         });
     }
 
     // Add Call Markers (Pickup + Destination)
-    // Add Call Markers (Pickup + Destination)
     calls.forEach(c => {
-        // 1. Pickup Marker (Human Icon)
         markers.push({
             id: `${c.CallId}_pickup`,
             lat: Number(c.Latitude),
@@ -374,20 +383,33 @@ const MapPage: React.FC = () => {
             userType: 'Customer', // Shows Human Icon
             gender: c.InitiatorGender, // Pass gender explicitly!
             title: `${t('pickup')} (User)`,
+            popupContent: (
+                <div>
+                    <strong>{t('pickup')}</strong>
+                    <div style={{ marginTop: 5 }}>
+                        👤 {c.PassengerCount} {t('passenger')}
+                    </div>
+                </div>
+            ),
             color: 'red', // Fallback
-            // Pass payment info if available (would need to be added to Call type or fetched)
             onClick: () => handlePinClick(c.CallId, 'Call')
         } as any);
 
-        // 2. Destination Marker (Price Tag)
-        // ... (existing logic for dest)
         if (c.DestLat && c.DestLon) {
             markers.push({
                 id: `${c.CallId}_dest`,
                 lat: Number(c.DestLat),
                 lon: Number(c.DestLon),
-                price: c.OfferPrice, // Shows Price Tag
+                price: c.OfferPrice,
                 title: `${t('destination')} ($${c.OfferPrice})`,
+                popupContent: (
+                    <div>
+                        <strong>{t('destination')}</strong>
+                        <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#4CAF50', marginTop: 5 }}>
+                            ${c.OfferPrice}
+                        </div>
+                    </div>
+                ),
                 color: 'yellow',
                 onClick: () => handlePinClick(c.CallId, 'Call')
             } as any);
@@ -398,6 +420,14 @@ const MapPage: React.FC = () => {
                 lon: Number(c.Longitude),
                 price: c.OfferPrice,
                 title: `${t('pickup')} ($${c.OfferPrice})`,
+                popupContent: (
+                    <div>
+                        <strong>{t('pickup')}</strong>
+                        <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#4CAF50', marginTop: 5 }}>
+                            ${c.OfferPrice}
+                        </div>
+                    </div>
+                ),
                 color: 'yellow',
                 onClick: () => handlePinClick(c.CallId, 'Call')
             } as any);
@@ -412,7 +442,63 @@ const MapPage: React.FC = () => {
                     centerLon={myLoc.lon}
                     markers={markers}
                     onMapClick={handleMapClick}
+                    onBoundsChanged={handleBoundsChange}
                 />
+
+                {/* Overlays */}
+                {!gender && (
+                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 2000 }}>
+                        <GenderSelection
+                            onSelectGender={setGender}
+                            onLogout={() => {
+                                playSound('cancel');
+                                auth.signOut();
+                            }}
+                        />
+                    </div>
+                )}
+
+                {(gender && !role) && (
+                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 2000 }}>
+                        <RoleSelection
+                            gender={gender}
+                            onSelectRole={setRole}
+                            onLogout={() => {
+                                playSound('cancel');
+                                auth.signOut();
+                            }}
+                        />
+                    </div>
+                )}
+
+                {(role && !isConfirmed && !myCallId && !activeTx) && (
+                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 2000 }}>
+                        <PaymentSelection
+                            paymentMethods={paymentMethod}
+                            setPaymentMethods={setPaymentMethod}
+                            onContinue={() => {
+                                playSound('click');
+                                setIsConfirmed(true);
+                            }}
+                            onLogout={() => {
+                                playSound('cancel');
+                                auth.signOut();
+                            }}
+                        />
+                    </div>
+                )}
+
+                {/* Loading Indicator for Map (Non-blocking) */}
+                {isLocating && (
+                    <div style={{
+                        position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
+                        zIndex: 1500, background: 'white', padding: '5px 15px', borderRadius: 20,
+                        boxShadow: '0 2px 5px rgba(0,0,0,0.2)', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 5
+                    }}>
+                        <div className="spinner" style={{ width: 12, height: 12, border: '2px solid #ccc', borderTopColor: '#333', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                        {t('locating')}...
+                    </div>
+                )}
 
                 {/* Menu Toggle */}
                 <button

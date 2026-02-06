@@ -5,6 +5,7 @@ export interface UserLocation {
     UserId: string;
     Latitude: number;
     Longitude: number;
+    g: string; // Geohash
     UserType: string;
     Gender?: Gender;
     AvailableSeats: number;

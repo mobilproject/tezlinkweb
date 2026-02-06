@@ -59,6 +59,7 @@ export const translations = {
         rateDriver: 'Rate Your Ride',
         submitRating: 'Submit Rating',
         currency: '$',
+        busy: 'Busy',
     },
     uz: {
         brandSubtitle: 'Aqlli Shahar Transporti',
